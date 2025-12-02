@@ -1,1 +1,108 @@
 # CASTLE
+
+CASTLE: Cell-type Aware SpaTial domain detection via contrastive Learning Embedding
+
+# Overview
+
+<img width="2996" height="1583" alt="overview" src="https://github.com/user-attachments/assets/8a058ccf-8b04-4fca-8979-bfa8e32c2f7d" />
+
+CASTLE integrate spatial proximity and cell-type information directly during graph construction, using deconvolved compositions for spot-resolution data or cell-level annotations for single-cell platforms, with a fallback to expression-based similarity when labels are uncertain or unavailable. A self-supervised, local-context contrastive objective learns embeddings aligned to each spot’s microenvironment, while a lightweight encoder-decoder reconstructs expression to regularize the representation.
+
+# Installation
+
+Clone this repository. The CASTLE has been implemented in Python 3.11.13 and torch 2.7.1.
+
+```
+git clone https://github.com/Cui-STT-Lab/CASTLE.git
+cd CASTLE/
+```
+
+# Datasets
+
+All datasets used in our paper can be found in:
+
+ - the DLPFC dataset is accessible within the spatialLIBD package (\url{http://spatial.libd.org/spatialLIBD}).
+ - Data and H\&E images for MOB are available for download at \url{https://www.spatialresearch.org/resources-published-datasets/doi-10-1126science-aaf2403/}.
+ - The human breast cancer 10x Visium datasetis accessible on \url{https://www.10xgenomics.com/resources/datasets/human-breast-cancer-block-a-section-1-1-standard-1-1-0}
+ - The MERFISH dataset of the mouse hypothalamic preoptic area (MPOA) and mouse medial prefrontal cortex data from STARmap are available at \url{http://sdmbench.drai.cn/}.
+ - The Slide-seq dataset is available at \url{https://portals.broadinstitute.org/single_cell/study/slide-seq-study}.
+ - The processed Stereo-seq data from mouse olfactory bulb tissue is accessible on \url{https://github.com/JinmiaoChenLab/SEDR_analyses}.
+
+# Usage
+
+## DLPFC
+
+```
+import torch
+import pandas as pd
+import scanpy as sc
+from sklearn.metrics.cluster import adjusted_rand_score as ARI
+from CASTLE.CASTLE import CASTLE
+
+index = 8
+
+adata = sc.read_visium(file_fold, count_file='filtered_feature_bc_matrix.h5', load_images=True)
+adata.var_names_make_unique()
+adata
+
+norm_weights = pd.read_csv(csv_file, index_col=0)
+print(norm_weights)
+adata = adata[adata.obs_names.isin(norm_weights.index)].copy()
+norm_weights = norm_weights.loc[adata.obs_names]
+adata.obsm['cell_type'] = norm_weights.values
+n_clusters = df_meta_layer.dropna().unique().shape[0]
+
+model = CASTLE(adata, device=device,datatype = '10X', mode='sim', k_celltype=5, sim_threshold=0.9, cell_proportions='cell_type', weight1=True, weight2=True)
+adata = model.train()
+
+radius = 30
+tool = 'mclust' # mclust, leiden, and louvain
+# clustering
+from CASTLE.utils import clustering
+clustering(adata, n_clusters, radius=radius, method=tool, refinement=True)
+
+import matplotlib.pyplot as plt
+
+adata = adata[~pd.isnull(adata.obs['ground_truth'])]
+sc.pl.spatial(adata,
+              img_key="hires",
+              color=["ground_truth", "domain"],
+              title=["Ground truth", "ARI=%.4f"%ARI(adata.obs['domain'], adata.obs['ground_truth'])],
+              show=True)
+
+```
+
+## Merfish data
+
+```
+import torch
+import pandas as pd
+import scanpy as sc
+from sklearn.metrics.cluster import adjusted_rand_score as ARI
+from CASTLE.CASTLE import CASTLE
+
+index = 4
+
+adata = sc.read_h5ad(file_fold)
+adata.var_names_make_unique()
+adata
+
+model = CASTLE(adata, device=device, datatype = 'cell', mode='celltype', k_celltype = 10, weight1=False, weight2=False, cell_type='cell_class')
+adata = model.train()
+
+radius = 50
+n_clusters = 8 # the number of clusters
+tool = 'mclust' # mclust, leiden, and louvain
+# clustering
+from CASTLE.utils import clustering
+clustering(adata, n_clusters, radius=radius, method=tool, refinement=True)
+
+import matplotlib.pyplot as plt
+sc.pl.spatial(adata,
+              color=["ground_truth","domain"],
+              title=["Ground truth", "ARI=%.4f"%ARI(adata.obs['domain'], adata.obs['ground_truth'])],
+              spot_size=20,
+              basis='spatial')
+
+```
+
