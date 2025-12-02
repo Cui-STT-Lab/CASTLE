@@ -21,12 +21,12 @@ cd CASTLE/
 
 All datasets used in our paper can be found in:
 
- - the DLPFC dataset is accessible within the spatialLIBD package (\url{http://spatial.libd.org/spatialLIBD}).
- - Data and H\&E images for MOB are available for download at \url{https://www.spatialresearch.org/resources-published-datasets/doi-10-1126science-aaf2403/}.
- - The human breast cancer 10x Visium datasetis accessible on \url{https://www.10xgenomics.com/resources/datasets/human-breast-cancer-block-a-section-1-1-standard-1-1-0}
- - The MERFISH dataset of the mouse hypothalamic preoptic area (MPOA) and mouse medial prefrontal cortex data from STARmap are available at \url{http://sdmbench.drai.cn/}.
- - The Slide-seq dataset is available at \url{https://portals.broadinstitute.org/single_cell/study/slide-seq-study}.
- - The processed Stereo-seq data from mouse olfactory bulb tissue is accessible on \url{https://github.com/JinmiaoChenLab/SEDR_analyses}.
+ - the DLPFC dataset is accessible within the spatialLIBD package (http://spatial.libd.org/spatialLIBD).
+ - Data and H\&E images for MOB are available for download at https://www.spatialresearch.org/resources-published-datasets/doi-10-1126science-aaf2403/.
+ - The human breast cancer 10x Visium datasetis accessible on https://www.10xgenomics.com/resources/datasets/human-breast-cancer-block-a-section-1-1-standard-1-1-0 .
+ - The MERFISH dataset of the mouse hypothalamic preoptic area (MPOA) and mouse medial prefrontal cortex data from STARmap are available at http://sdmbench.drai.cn/.
+ - The Slide-seq dataset is available at https://portals.broadinstitute.org/single_cell/study/slide-seq-study.
+ - The processed Stereo-seq data from mouse olfactory bulb tissue is accessible on https://github.com/JinmiaoChenLab/SEDR_analyses.
 
 # Usage
 
