@@ -5,27 +5,79 @@ import pandas as pd
 from sklearn import metrics
 import scanpy as sc
 import ot
+from scipy import sparse
 from sklearn.decomposition import PCA
 
 
-def mclust_R(adata, num_cluster, modelNames='EEE', used_obsm='emb_pca', random_seed=2020):
+def _as_numeric_matrix(values, name):
+    """Convert an AnnData matrix-like object into a finite 2D numpy array."""
+    if sparse.issparse(values):
+        values = values.toarray()
+    if isinstance(values, pd.DataFrame):
+        values = values.to_numpy()
+
+    matrix = np.asarray(values, dtype=np.float64)
+    if matrix.ndim != 2:
+        raise ValueError(f"{name} must be a 2D matrix, but got shape {matrix.shape}.")
+    if matrix.shape[0] == 0 or matrix.shape[1] == 0:
+        raise ValueError(f"{name} must not be empty, but got shape {matrix.shape}.")
+
+    if not np.isfinite(matrix).all():
+        matrix = matrix.copy()
+        col_medians = np.nanmedian(np.where(np.isfinite(matrix), matrix, np.nan), axis=0)
+        col_medians = np.where(np.isfinite(col_medians), col_medians, 0.0)
+        bad_rows, bad_cols = np.where(~np.isfinite(matrix))
+        matrix[bad_rows, bad_cols] = col_medians[bad_cols]
+
+    return np.ascontiguousarray(matrix, dtype=np.float64)
+
+
+def mclust_R(adata, num_cluster, modelNames=None, used_obsm='emb_pca', random_seed=2020):
     """\
     Clustering using the mclust algorithm.
     The parameters are the same as those in the R package mclust.
     """
-    
+    if used_obsm not in adata.obsm:
+        raise KeyError(f"{used_obsm!r} was not found in adata.obsm.")
+
+    embedding = _as_numeric_matrix(adata.obsm[used_obsm], used_obsm)
+    if embedding.shape[0] != adata.n_obs:
+        raise ValueError(
+            f"{used_obsm} has {embedding.shape[0]} rows, but adata has {adata.n_obs} observations."
+        )
+
     np.random.seed(random_seed)
     import rpy2.robjects as robjects
     robjects.r.library("mclust")
 
-    import rpy2.robjects.numpy2ri
-    rpy2.robjects.numpy2ri.activate()
     r_random_seed = robjects.r['set.seed']
     r_random_seed(random_seed)
     rmclust = robjects.r['Mclust']
-    
-    res = rmclust(rpy2.robjects.numpy2ri.numpy2rpy(adata.obsm[used_obsm]), num_cluster, modelNames)
-    mclust_res = np.array(res[-2])
+
+    r_embedding = robjects.r['matrix'](
+        robjects.FloatVector(embedding.ravel(order='C')),
+        nrow=embedding.shape[0],
+        ncol=embedding.shape[1],
+        byrow=True,
+    )
+
+    print("R mclust input dim:", tuple(robjects.r['dim'](r_embedding)))
+    print("R mclust input ncol:", int(robjects.r['ncol'](r_embedding)[0]))
+
+    r_embedding = robjects.r['colnames<-'](
+        r_embedding,
+        robjects.StrVector([f"PC{i+1}" for i in range(embedding.shape[1])])
+    )
+
+    if modelNames is None:
+        res = rmclust(r_embedding, G=robjects.IntVector([num_cluster]))
+    else:
+        res = rmclust(
+            r_embedding,
+            G=robjects.IntVector([num_cluster]),
+            modelNames=robjects.StrVector([modelNames])
+        )
+    mclust_res = np.array(res.rx2('classification'))
 
     adata.obs['mclust'] = mclust_res
     adata.obs['mclust'] = adata.obs['mclust'].astype('int')
@@ -62,22 +114,43 @@ def clustering(adata, n_clusters=7, radius=20, key='emb', method='mclust', start
     None.
 
     """
-    
-    pca = PCA(n_components=20, random_state=42) 
-    embedding = pca.fit_transform(adata.obsm['emb'].copy())
-    adata.obsm['emb_pca'] = embedding
+    if key not in adata.obsm:
+        raise KeyError(f"{key!r} was not found in adata.obsm.")
+
+    representation = _as_numeric_matrix(adata.obsm[key], key)
+    if representation.shape[0] != adata.n_obs:
+        raise ValueError(
+            f"{key} has {representation.shape[0]} rows, but adata has {adata.n_obs} observations."
+        )
+
+    n_components = min(20, representation.shape[0] - 1, representation.shape[1])
+    if n_components < 1:
+        raise ValueError(f"{key} must have at least two observations and one feature for PCA.")
+
+    pca = PCA(n_components=n_components, random_state=42)
+    embedding = pca.fit_transform(representation)
+    keep = np.isfinite(embedding).all(axis=0) & (np.nanstd(embedding, axis=0) > 1e-12)
+    embedding = embedding[:, keep]
+    if embedding.shape[1] == 0:
+        raise ValueError("PCA produced no usable components for clustering.")
+    print("PCA embedding shape after filtering:", embedding.shape)
+    print("PCA component std min/max:", float(np.std(embedding, axis=0).min()), float(np.std(embedding, axis=0).max()))
+    pca_key = f'{key}_pca'
+    adata.obsm[pca_key] = embedding
     
     if method == 'mclust':
-       adata = mclust_R(adata, used_obsm='emb_pca', num_cluster=n_clusters)
+       adata = mclust_R(adata, used_obsm=pca_key, num_cluster=n_clusters)
        adata.obs['domain'] = adata.obs['mclust']
     elif method == 'leiden':
-       res = search_res(adata, n_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
+       res = search_res(adata, n_clusters, use_rep=pca_key, method=method, start=start, end=end, increment=increment)
        sc.tl.leiden(adata, random_state=0, resolution=res)
        adata.obs['domain'] = adata.obs['leiden']
     elif method == 'louvain':
-       res = search_res(adata, n_clusters, use_rep='emb_pca', method=method, start=start, end=end, increment=increment)
+       res = search_res(adata, n_clusters, use_rep=pca_key, method=method, start=start, end=end, increment=increment)
        sc.tl.louvain(adata, random_state=0, resolution=res)
        adata.obs['domain'] = adata.obs['louvain'] 
+    else:
+       raise ValueError("method must be one of 'mclust', 'leiden', or 'louvain'.")
        
     if refinement:  
        new_type = refine_label(adata, radius, key='domain')

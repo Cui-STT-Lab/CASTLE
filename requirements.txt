@@ -1,0 +1,13 @@
+numpy
+pandas
+scipy
+scikit-learn
+scanpy
+anndata
+torch
+tqdm
+POT
+rpy2
+leidenalg
+louvain
+igraph
