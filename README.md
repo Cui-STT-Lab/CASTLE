@@ -10,11 +10,18 @@ CASTLE integrate spatial proximity and cell-type information directly during gra
 
 # Installation
 
-Clone this repository. The CASTLE has been implemented in Python 3.11.13 and torch 2.7.1.
+CASTLE has been implemented and tested with Python 3.11.13 and torch 2.7.1.
 
 ```
 git clone https://github.com/Cui-STT-Lab/CASTLE.git
 cd CASTLE/
+pip install -r requirements.txt
+```
+
+The default mclust clustering option also requires the R package `mclust`, which is called from Python through `rpy2`.
+
+```
+R -e "install.packages('mclust', repos='https://cloud.r-project.org')"
 ```
 
 # Datasets
@@ -34,6 +41,8 @@ All datasets used in our paper can be found in:
 
 ## DLPFC
 
+The DLPFC example uses a Visium count matrix, a cell-type proportion table, and layer labels. In the code below, `csv_file` should point to a CSV file whose rows are spot barcodes and whose columns are cell types. `df_meta_layer` is the layer annotation for the same spots, for example the `layer_guess_reordered_short` column from the spatialLIBD metadata.
+
 ```
 import torch
 import pandas as pd
@@ -47,11 +56,18 @@ adata = sc.read_visium(file_fold, count_file='filtered_feature_bc_matrix.h5', lo
 adata.var_names_make_unique()
 adata
 
+# Example metadata loading. Update metadata_file and layer_col for your DLPFC slice.
+metadata = pd.read_csv(metadata_file, sep='\t', index_col=0)
+layer_col = 'layer_guess_reordered_short'
+adata.obs['ground_truth'] = metadata.loc[adata.obs_names, layer_col]
+df_meta_layer = adata.obs['ground_truth']
+
 norm_weights = pd.read_csv(csv_file, index_col=0)
 print(norm_weights)
 adata = adata[adata.obs_names.isin(norm_weights.index)].copy()
 norm_weights = norm_weights.loc[adata.obs_names]
 adata.obsm['cell_type'] = norm_weights.values
+df_meta_layer = adata.obs['ground_truth']
 n_clusters = df_meta_layer.dropna().unique().shape[0]
 
 model = CASTLE(adata, device=device,datatype = '10X', mode='sim', k_celltype=5, sim_threshold=0.9, cell_proportions='cell_type', weight1=True, weight2=True)
@@ -76,6 +92,8 @@ sc.pl.spatial(adata,
 
 ## Merfish data
 
+For MERFISH `.h5ad` files, CASTLE expects spatial coordinates in `adata.obsm['spatial']` and the cell-type labels used for graph construction in `adata.obs['cell_class']`. If ground-truth labels are available, store them in `adata.obs['ground_truth']` before plotting or computing ARI.
+
 ```
 import torch
 import pandas as pd
@@ -88,6 +106,13 @@ index = 4
 adata = sc.read_h5ad(file_fold)
 adata.var_names_make_unique()
 adata
+
+required_obs = 'cell_class'
+required_obsm = 'spatial'
+if required_obs not in adata.obs:
+    raise KeyError(f"MERFISH input must contain adata.obs['{required_obs}'].")
+if required_obsm not in adata.obsm:
+    raise KeyError(f"MERFISH input must contain adata.obsm['{required_obsm}'].")
 
 model = CASTLE(adata, device=device, datatype = 'cell', mode='celltype', k_celltype = 10, weight1=False, weight2=False, cell_type='cell_class')
 adata = model.train()
@@ -107,4 +132,3 @@ sc.pl.spatial(adata,
               basis='spatial')
 
 ```
-
